@@ -1,0 +1,179 @@
+[vnaik@ansible01 ~]$ cat healthcheck.sh
+#! /bin/bash
+
+clear
+
+
+UPTIME=$(uptime)
+DATE=$(date +%c)
+HNAME=$(uname -n)
+MOUNT=$(mount | egrep -iw "ext3|ext4|xfs|gfs|gfs2|btrfs|nfs" | sort -u -t ' ' -k1,2)
+
+FS_USAGE=$(df -PTh|egrep -iw "ext4|ext3|xfs|gfs|gfs2|btrfs|nfs"|sort -k6n)
+IUSAGE=$(df -PThi|egrep -iw "ext4|ext3|xfs|gfs|gfs2|btrfs|nfs"|sort -k6n)
+
+
+H1(){
+h1="$1"
+h2="$2"
+hc=${#h1}
+hd=`expr 120 - $hc`
+hd=`expr $hd / 2`
+
+i=0
+a="="
+while [ $i -le $hd ];do
+a="$a="
+let i++
+done
+head="$a $h1 $a"
+echo -e "\n$head"
+}
+
+PRINT(){
+CMD=$@
+echo -e "$CMD\n"
+}
+
+PRINTF(){
+
+VALUE=$@
+printf "%-40s%-15s%-15s%-s\n" $VALUE
+
+}
+
+H1 "Health check for $HNAME on $DATE"
+H1 "System uptime"
+PRINT "$UPTIME"
+H1 "Checking for ReadOnly File System"
+PRINT "$MOUNT"|grep -w \(ro && echo -e "\nERROR!!.....Read Only file system[s] found"|| echo -e ".....No read-only file system[s] found. "
+H1 "MOUNTED FILE SYSTEM"
+PRINTF "FILESYSTEM ETC_FSTAB MOUNTED" >/tmp/fs.out
+PRINTF "---------- --------- -------" >> /tmp/fs.out
+FSTAB_ENTRIES=$(cat /etc/fstab | awk '$1 !~"#|^$" && $2 !~"swap" {print $2}')
+
+for FS in ${FSTAB_ENTRIES}; do
+ {
+        cat /proc/mounts | grep -wq ${FS}
+
+        if [ $? -eq 0 ]
+                then
+                        PR_FSTAB="Yes"
+                        PR_MOUNT="Yes"
+                else
+                        PR_FSTAB="Yes"
+                        PR_MOUNT="No"
+        fi
+ PRINTF "$FS $PR_FSTAB $PR_MOUNT" >> /tmp/fs.out
+ }
+done
+cat /tmp/fs.out
+MNTFS_ERR=$(cat /tmp/fs.out | grep No | wc -l)
+if [ "$MNTFS_ERR" != 0 ];then
+PRINT "ERROR!!.....FILESYSTEM[s] mentioned in FSTAB not mounted"
+fi
+
+H1 "Checking For Currently Mounted File System[s]"
+echo "$MOUNT"|column -t
+
+H1 "Checking For Disk Usage On Mounted File System[s]"
+PRINT "( 0-90% = OK/HEALTHY, 90-95% = WARNING, 95-100% = CRITICAL )"
+PRINT "Mounted File System[s] Utilization (Percentage Used):"
+echo "$FS_USAGE"|awk '{print $1 " "$7}' > /tmp/fsusage1.out
+echo "$FS_USAGE"|awk '{print $6}'|sed -e 's/%//g' > /tmp/fsusage2.out
+> /tmp/fsusage3.out
+
+for i in $(cat /tmp/fsusage2.out); do
+{
+if [[ $i == *[[:digit:]]* ]];then
+  if [ $i -ge 95 ];
+   then
+     echo -e $i"% ------------------Critical" >> /tmp/fsusage3.out;
+   elif [[ $i -ge 90 && $i -lt 95 ]];
+   then
+     echo -e $i"% ------------------Warning" >> /tmp/fsusage3.out;
+   else
+     echo -e $i"% ------------------Good/Healthy" >> /tmp/fsusage3.out;
+  fi
+fi
+}
+done
+paste -d"\t" /tmp/fsusage1.out /tmp/fsusage3.out|column -t
+FSCRT_ERR=$(cat /tmp/fsusage3.out | grep Critical | wc -l)
+if [ "$FSCRT_ERR" != 0 ];then
+PRINT "ERROR!!.....FILESYSTEM[s] reached critical threshold limit"
+fi
+
+#--------Check Inode usage--------#
+H1 "INODE Utilization (Percentage Used):"
+PRINT "( 0-90% = OK/HEALTHY, 90-95% = WARNING, 95-100% = CRITICAL )"
+
+echo "$IUSAGE"|awk '{print $1" "$7}' > /tmp/s1.out
+echo "$IUSAGE"|awk '{print $6}'|sed -e 's/%//g' > /tmp/s2.out
+> /tmp/s3.out
+
+for i in $(cat /tmp/s2.out); do
+  if [[ $i == *[[:digit:]]* ]];then
+  {
+  if [ $i -ge 95 ];
+        then
+                echo -e $i"% ------------------Critical" >> /tmp/s3.out;
+  elif [[ $i -ge 90 && $i -lt 95 ]];
+        then
+                echo -e $i"% ------------------Warning" >> /tmp/s3.out;
+  else
+                echo -e $i"% ------------------Good/Healthy" >> /tmp/s3.out;
+  fi
+  }
+  else
+    echo -e $i"% (Inode Percentage details not available)" >> /tmp/s3.out
+  fi
+done
+paste -d"\t" /tmp/s1.out /tmp/s3.out|column -t
+
+INODECRT_ERR=$(cat /tmp/s3.out | grep Critical | wc -l)
+if [ "$INODECRT_ERR" != 0 ];then
+PRINT "ERROR!!.....FILE SYSTEM[s] Inode usage reached critical threshold limit"
+fi
+
+H1 "System Utilization"
+#--------Check for RAM Utilization--------#
+MEM_DETAILS=$(cat /proc/meminfo)
+PRINT "Checking Memory Usage Details"
+echo -e "Total RAM (/proc/meminfo) : "$(echo "$MEM_DETAILS"|grep MemTotal|awk '{print $2/1024}') "MB OR" \
+$(echo "$MEM_DETAILS"|grep MemTotal|awk '{print $2/1024/1024}') "GB"
+
+echo -e "Used RAM in MB : "$(free -m|grep -w Mem:|awk '{print $3}')", in GB : "$(free -m|grep -w Mem:|awk '{print $3/1024}')
+
+echo -e "Free RAM in MB : "$(echo "$MEM_DETAILS"|grep -w MemFree|awk '{print $2/1024}')" , in GB : "$(echo "$MEM_DETAILS" \
+|grep -w MemFree |awk '{print $2/1024/1024}')
+
+#--------Check for SWAP Utilization--------#
+H1 "Checking SWAP Details"
+echo -e "Total Swap Memory in MB : "$(echo "$MEM_DETAILS"|grep -w SwapTotal|awk '{print $2/1024}')", in GB : \
+"$(echo "$MEM_DETAILS"|grep -w SwapTotal|awk '{print $2/1024/1024}')
+echo -e "Swap Free Memory in MB : "$(echo "$MEM_DETAILS"|grep -w SwapFree|awk '{print $2/1024}')", in GB : \
+"$(echo "$MEM_DETAILS"|grep -w SwapFree|awk '{print $2/1024/1024}')
+
+if [ "$(echo "$MEM_DETAILS"|grep -w SwapTotal|awk '{print $2}')" == 0 ];then
+PRINT "ERROR!!.....Swap Memory not enabled"
+fi
+
+#--------Check for Processor Utilization (current data)--------#
+PRINT "Checking For Processor Utilization"
+PRINT "Manufacturer: "$(dmidecode -s processor-manufacturer|uniq)
+PRINT "Processor Model: "$(dmidecode -s processor-version|uniq)
+if [ -e /usr/bin/lscpu ];then
+        echo -e "No. Of Processor(s) :" $(lscpu|grep -w "Socket(s):"|awk -F: '{print $2}')
+        echo -e "No. of Core(s) per processor :" $(lscpu|grep -w "Core(s) per socket:"|awk -F: '{print $2}')
+ else
+        echo -e "No. Of Processor(s) Found :" $(grep -c processor /proc/cpuinfo)
+        echo -e "No. of Core(s) per processor :" $(grep "cpu cores" /proc/cpuinfo|uniq|wc -l)
+fi
+PRINT "Current Processor Utilization Summary :"
+iostat -c | tail -4
+#--------Check for load average (current data)--------#
+H1 "Checking For Load Average"
+PRINT "Current Load Average : $(uptime|grep -o "load average.*"|awk '{print $3" " $4" " $5}')"
+
+[vnaik@ansible01 ~]$

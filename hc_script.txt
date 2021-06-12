@@ -1,4 +1,3 @@
-[vnaik@ansible01 ~]$ cat healthcheck.sh
 #! /bin/bash
 
 clear
@@ -175,5 +174,3 @@ iostat -c | tail -4
 #--------Check for load average (current data)--------#
 H1 "Checking For Load Average"
 PRINT "Current Load Average : $(uptime|grep -o "load average.*"|awk '{print $3" " $4" " $5}')"
-
-[vnaik@ansible01 ~]$

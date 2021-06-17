@@ -1,0 +1,47 @@
+---
+
+- hosts: localhost
+  become: yes
+  gather_facts: true
+  vars: 
+    ssh_key: '/home/vmnaik/.ssh/authorized_keys'
+    pushkey: true
+    rootwithoutpass: false
+
+  tasks:
+    - name: Copy ssh key
+      authorized_key:
+              key: "{{ lookup ('file',  ssh_key) }}"
+              user: root
+      #check_mode: yes
+      when: pushkey
+
+      tags: 
+        - push_key
+
+    - name: Enabling ssh-key only root access
+      lineinfile:
+        dest: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin without-password'
+      notify:
+        - restart_sshd
+        - restart_ssh
+      when: rootwithoutpass
+      tags:
+        - root_withoutpass
+
+  handlers:
+    - name: restart_sshd
+      service:
+        name: sshd
+        state: restarted
+        enabled: true
+      when: ansible_distribution == 'RedHat'
+    - name: restart_ssh
+      service:
+        name: ssh
+        state: restarted
+        enabled: true
+      when: ansible_distribution == 'Debian'
+

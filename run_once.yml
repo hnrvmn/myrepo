@@ -1,0 +1,8 @@
+--- 
+
+- hosts: localhost
+  tasks: 
+
+    - name: Run once
+      shell: echo 'run once' >>/tmp/vm.out
+      run_once: true
